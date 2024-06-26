@@ -1,5 +1,6 @@
 import streamlit as st
 from langchain_openai import ChatOpenAI
+from zhipuai_llm import ZhipuAILLM
 import os
 from langchain_core.output_parsers import StrOutputParser
 from langchain.prompts import PromptTemplate
@@ -16,12 +17,14 @@ _ = load_dotenv(find_dotenv())    # read local .env file
 
 #export OPENAI_API_KEY=
 #os.environ["OPENAI_API_BASE"] = 'https://api.chatgptid.net/v1'
-zhipuai_api_key = os.environ['ZHIPUAI_API_KEY']
+api_key2 = os.environ['ZHIPUAI_API_KEY']
 
 
-def generate_response(input_text, openai_api_key):
-    llm = ChatOpenAI(temperature=0.7, openai_api_key=openai_api_key)
-    output = llm.invoke(input_text)
+def generate_response(input_text, api_key1):
+    # llm = ChatOpenAI(temperature=0.7, openai_api_key=openai_api_key)
+    llm = ZhipuAILLM(model = "chatglm_std", temperature = 0, api_key = api_key1)
+    # output = llm.invoke(input_text)
+    output  = llm(input_text)
     output_parser = StrOutputParser()
     output = output_parser.invoke(output)
     #st.info(output)
@@ -31,7 +34,7 @@ def get_vectordb():
     # 定义 Embeddings
     embedding = ZhipuAIEmbeddings()
     # 向量数据库持久化路径
-    persist_directory = '../C3 搭建知识库/data_base/vector_db/chroma'
+    persist_directory = '../../data_base/vector_db/chroma'
     # 加载数据库
     vectordb = Chroma(
         persist_directory=persist_directory,  # 允许我们将persist_directory目录保存到磁盘上
@@ -40,9 +43,10 @@ def get_vectordb():
     return vectordb
 
 #带有历史记录的问答链
-def get_chat_qa_chain(question:str,openai_api_key:str):
+def get_chat_qa_chain(question:str,api_key1:str):
     vectordb = get_vectordb()
-    llm = ChatOpenAI(model_name = "gpt-3.5-turbo", temperature = 0,openai_api_key = openai_api_key)
+    # llm = ChatOpenAI(model_name = "gpt-3.5-turbo", temperature = 0,openai_api_key = openai_api_key)
+    llm = ZhipuAILLM(model = "chatglm_std", temperature = 0, api_key = api_key1)
     memory = ConversationBufferMemory(
         memory_key="chat_history",  # 与 prompt 的输入变量保持一致。
         return_messages=True  # 将以消息列表的形式返回聊天记录，而不是单个字符串
@@ -57,13 +61,26 @@ def get_chat_qa_chain(question:str,openai_api_key:str):
     return result['answer']
 
 #不带历史记录的问答链
-def get_qa_chain(question:str,openai_api_key:str):
+def get_qa_chain(question:str,api_key1:str):
     vectordb = get_vectordb()
-    llm = ChatOpenAI(model_name = "gpt-3.5-turbo", temperature = 0,openai_api_key = openai_api_key)
-    template = """使用以下上下文来回答最后的问题。如果你不知道答案，就说你不知道，不要试图编造答
-        案。最多使用三句话。尽量使答案简明扼要。总是在回答的最后说“谢谢你的提问！”。
+    # llm = ChatOpenAI(model_name = "gpt-3.5-turbo", temperature = 0,openai_api_key = openai_api_key)
+    llm = ZhipuAILLM(model = "chatglm_std", temperature = 0, api_key = api_key1)
+    # template = """使用以下上下文来回答最后的问题。如果你不知道答案，就说你不知道，不要试图编造答
+    #     案。最多使用三句话。尽量使答案简明扼要。总是在回答的最后说“谢谢你的提问！”。
+    #     {context}
+    #     问题: {question}
+    #     """
+    template = """
+        从文档
+        \"\"\"
         {context}
-        问题: {question}
+        \"\"\"
+        中找问题
+        \"\"\"
+        {question}
+        \"\"\"
+        的答案，找到答案就仅使用文档语句回答问题，找不到答案就用自身知识回答并且告诉用户该信息不是来自文档。
+        不要复述问题，直接开始回答。
         """
     QA_CHAIN_PROMPT = PromptTemplate(input_variables=["context","question"],
                                  template=template)
@@ -77,8 +94,8 @@ def get_qa_chain(question:str,openai_api_key:str):
 
 # Streamlit 应用程序界面
 def main():
-    st.title('🦜🔗 动手学大模型应用开发')
-    openai_api_key = st.sidebar.text_input('OpenAI API Key', type='password')
+    st.title('🦜🔗 不要瞎问问题')
+    zhipuai_api_key = st.sidebar.text_input('OpenAI API Key', type='password')
 
     # 添加一个选择按钮来选择不同的模型
     #selected_method = st.sidebar.selectbox("选择模式", ["qa_chain", "chat_qa_chain", "None"])
@@ -91,18 +108,18 @@ def main():
     if 'messages' not in st.session_state:
         st.session_state.messages = []
 
-    messages = st.container(height=300)
+    messages = st.container(height=600)
     if prompt := st.chat_input("Say something"):
         # 将用户输入添加到对话历史中
         st.session_state.messages.append({"role": "user", "text": prompt})
 
         if selected_method == "None":
             # 调用 respond 函数获取回答
-            answer = generate_response(prompt, openai_api_key)
+            answer = generate_response(prompt, zhipuai_api_key)
         elif selected_method == "qa_chain":
-            answer = get_qa_chain(prompt,openai_api_key)
+            answer = get_qa_chain(prompt,zhipuai_api_key)
         elif selected_method == "chat_qa_chain":
-            answer = get_chat_qa_chain(prompt,openai_api_key)
+            answer = get_chat_qa_chain(prompt,zhipuai_api_key)
 
         # 检查回答是否为 None
         if answer is not None:
